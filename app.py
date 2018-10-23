@@ -4,18 +4,16 @@
 
 
 from flask import Flask
-from flask import render_template, redirect, url_for, request
+from flask import render_template, request
 
 import pandas as pd
 import numpy as np
 import pymorphy2
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
-from collections import defaultdict
 from math import log
 import string
 import re
-import os
 import json
 import warnings
 warnings.filterwarnings(action='ignore', category=UserWarning, module='gensim')
@@ -27,51 +25,29 @@ morph = pymorphy2.MorphAnalyzer()
 
 app = Flask(__name__)
 
-model_path = 'araneum_none_fasttextcbow_300_5_2018/araneum_none_fasttextcbow_300_5_2018.model'
-model_w2v = Word2Vec.load(model_path)
-broken_vectors = pd.read_csv('model_vec_w2v.csv').text_vec
-
-
 def make_list(str_vec):
     vec = []
     for el in str_vec.strip('[]').split(', '):
         vec.append(float(el))
     return vec
 
+# load w2v model and w2v vectors
+model_path = 'araneum_none_fasttextcbow_300_5_2018/araneum_none_fasttextcbow_300_5_2018.model'
+model_w2v = Word2Vec.load(model_path)
 
+broken_vectors = pd.read_csv('model_vec_w2v.csv').text_vec
 model_vectors_w2v = broken_vectors.apply(make_list)
 
-def get_texts():
-    main_dir = 'avito'
-    file_names = os.listdir(main_dir)
-    text = []
-    for file in file_names:
-        with open("avito\\" + file, "r") as data_file:
-            try:
-                data = json.load(data_file)
-                t = data['text'].replace('\0', '')
-            except:
-                data = data_file.read()
-                m = re.search('text\": \"(.*?)\",', data)
-                if m:
-                    t = m.group(1)
-            text.append(t)
-    return text
-
-
-texts = list(pd.read_csv('corpus.csv').text)
-d2v_texts = get_texts()
-
-broken_vectors_d2v = pd.read_csv('model_vec_d2v.csv').text_vec
+# load d2v model and d2v vectors
+broken_vectors_d2v = pd.read_csv('model_vectors_d2v.csv').text_vec
 model_vectors_d2v = broken_vectors_d2v.apply(make_list)
+
 model_d2v = Doc2Vec.load('doc2vec.model')
 
+# open texts
+texts = list(pd.read_csv('corpus.csv').text)
 
-def score_BM25(qf, dl, N, n, avgdl, k1=2.0, b=0.75) -> float:
-    score = log((N - n + 0.5)/(n + 0.5)) * (k1 + 1) * qf / (qf + k1 * (1 - b + b * (dl / avgdl)))
-    return score
-
-
+# open inverted index
 inv_ind = json.load(open('invind.json'))
 
 
@@ -92,10 +68,15 @@ def search(query, search_method):
     elif search_method == 'word2vec':
         search_result = search_w2v(query, texts, model_vectors_w2v, model_w2v)
     elif search_method == 'doc2vec':
-        search_result = search_d2v(query, d2v_texts, model_vectors_d2v, model_d2v)
+        search_result = search_d2v(query, texts, model_vectors_d2v, model_d2v)
     else:
         raise TypeError('Unsupported search method')
     return search_result[:5]  # return top-5
+
+
+def score_BM25(qf, dl, N, n, avgdl, k1=2.0, b=0.75) -> float:
+    score = log((N - n + 0.5)/(n + 0.5)) * (k1 + 1) * qf / (qf + k1 * (1 - b + b * (dl / avgdl)))
+    return score
 
 
 def compute_sim(query, inv_ind, document, avgdl, N) -> float:
